@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
 # 导入自定义模块
-from app import BioEngine, StreamlitLogger, analyze_event_with_deepseek, analyze_event_with_gemini
+from bio_model import BioEngine, StreamlitLogger, analyze_event_with_deepseek, analyze_event_with_gemini
 from db_module import Database
 from auth import AuthManager
 
