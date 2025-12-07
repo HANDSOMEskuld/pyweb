@@ -228,7 +228,7 @@ count = st_autorefresh(interval=1000, key="fizzbuzz")
 # 计算时间步进
 current_real_time = time.time()
 # 缩放时间：现实 1 秒 = 模拟 10 分钟 (为了演示效果能看到曲线变化)
-time_scale = 10 * 60 
+time_scale = 1
 elapsed_real = current_real_time - st.session_state['start_real_time']
 sim_time_now = 8.0 + (elapsed_real * time_scale / 3600.0) # 小时
 
