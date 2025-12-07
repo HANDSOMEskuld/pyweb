@@ -2,7 +2,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.optimize import minimize
 import pandas as pd
-import datetime
+from datetime import datetime, timedelta
 import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -15,6 +15,9 @@ import json
 from contextlib import redirect_stdout
 import os
 
+
+# ... 初始化部分保持不变 ...
+
 # 自定义日志记录器
 class StreamlitLogger:
     def __init__(self):
@@ -22,7 +25,7 @@ class StreamlitLogger:
     
     def add_log(self, level, message):
         """添加日志记录"""
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now().strftime("%H:%M:%S")
         log_entry = {
             'timestamp': timestamp,
             'level': level,
@@ -933,6 +936,14 @@ with st.sidebar:
         st.session_state['engine'].apply_event('hrv_update', hrv_input)
         st.success(f"HRV参数已映射: k={st.session_state['engine'].params['k']:.1f}, c={st.session_state['engine'].params['c']:.1f}")
         st.info("HRV 越低，可能导致情绪波动更大；HRV 越高，情绪更稳定。")
+        # 记录事件
+        if 'event_markers' not in st.session_state:
+            st.session_state['event_markers'] = []
+        st.session_state['event_markers'].append({
+            'time': datetime.now(),
+            'event': f'HRV 更新: {hrv_input}',
+            'amplitude': 0
+        })
 
     st.subheader("事件")
     col1, col2 = st.columns(2)
@@ -941,16 +952,26 @@ with st.sidebar:
             # 咖啡因生效：暂时降低睡眠压力
             st.session_state['engine'].state[0] *= 0.6 
             st.toast("咖啡因生效：睡眠压力暂时降低")
+            # 记录事件
+            st.session_state.setdefault('event_markers', []).append({
+                'time': datetime.now(), 'event': '喝咖啡', 'amplitude': -0.5
+            })
             
     with col2:
         if st.button("🤯 压力事件"):
             st.session_state['engine'].apply_event('stress_event')
             st.toast("受到压力冲击！")
+            st.session_state.setdefault('event_markers', []).append({
+                'time': datetime.now(), 'event': '压力事件', 'amplitude': -1.0
+            })
             
     with col1:
          if st.button("🏃 运动"):
             st.session_state['engine'].apply_event('exercise')
             st.toast("运动释放内啡肽！")
+            st.session_state.setdefault('event_markers', []).append({
+                'time': datetime.now(), 'event': '运动', 'amplitude': 1.0
+            })
             
     with col2:
         if st.button("🧘 冥想"):
@@ -958,6 +979,9 @@ with st.sidebar:
             st.session_state['engine'].state[2] = 0 # 速度归零
             st.session_state['engine'].params['c'] += 2.0
             st.toast("系统强制平静 (阻尼增加)")
+            st.session_state.setdefault('event_markers', []).append({
+                'time': datetime.now(), 'event': '冥想', 'amplitude': 0.2
+            })
 
     st.divider()
     
@@ -969,6 +993,10 @@ with st.sidebar:
         else:
             st.session_state['engine'].apply_event('sleep_end')
         st.rerun()
+        # 记录睡眠切换事件
+        st.session_state.setdefault('event_markers', []).append({
+            'time': datetime.now(), 'event': 'sleep_start' if is_sleeping else 'sleep_end', 'amplitude': 0
+        })
 
     st.subheader("自定义事件 (AI分析)")
     custom_event = st.text_input("描述事件 (例如: 喝咖啡, 运动, 压力事件)")
@@ -1016,11 +1044,12 @@ with st.sidebar:
                     with st.expander("参数调整详情"):
                         st.json(param_adjustments)
 
-                    # Add markers to the chart
+                    # Add markers to the chart (use actual datetime for x-axis)
                     if 'event_markers' not in st.session_state:
                         st.session_state['event_markers'] = []
+                    marker_time = datetime.now()
                     st.session_state['event_markers'].append({
-                        'time': st.session_state['engine'].last_update_time,
+                        'time': marker_time,
                         'event': custom_event,
                         'amplitude': amplitude
                     })
@@ -1050,13 +1079,14 @@ dt = sim_time_now - st.session_state['engine'].last_update_time
 if dt > 0:
     st.session_state['engine'].step(dt)
     
-    # 记录数据用于绘图
+    # 记录数据用于绘图（使用实际时间作为横轴）
     mood, base, x, S = st.session_state['engine'].get_mood_value(sim_time_now)
-    st.session_state['history']['time'].append(sim_time_now)
+    now_dt = datetime.now()
+    st.session_state['history']['time'].append(now_dt)
     st.session_state['history']['mood'].append(mood)
     st.session_state['history']['baseline'].append(base)
     
-    # 保持历史数据不无限增长 (最近48小时)
+    # 保持历史数据不无限增长 (最近48小时，假设每10分钟记录一次 => 288点)
     if len(st.session_state['history']['time']) > 288:
         for k in st.session_state['history']:
             st.session_state['history'][k].pop(0)
@@ -1096,7 +1126,7 @@ if len(st.session_state['history']['time']) > 0:
         line=dict(color='rgba(38, 166, 154, 1)', width=2),
         fill='tozeroy',
         fillcolor='rgba(38, 166, 154, 0.28)',
-        hovertemplate='<b>时间</b>: %{x:.1f}h<br><b>心情值</b>: %{y:.2f}<extra></extra>'
+        hovertemplate='<b>时间</b>: %{x|%Y-%m-%d %H:%M:%S}<br><b>心情值</b>: %{y:.2f}<extra></extra>'
     ))
     
     # 添加基线数据 - 红色（基础生物节律）
@@ -1108,7 +1138,7 @@ if len(st.session_state['history']['time']) > 0:
         line=dict(color='rgba(239, 83, 80, 1)', width=2),
         fill='tozeroy',
         fillcolor='rgba(239, 83, 80, 0.28)',
-        hovertemplate='<b>时间</b>: %{x:.1f}h<br><b>基线</b>: %{y:.2f}<extra></extra>'
+        hovertemplate='<b>时间</b>: %{x|%Y-%m-%d %H:%M:%S}<br><b>基线</b>: %{y:.2f}<extra></extra>'
     ))
     
     # 添加中线（0值线）用于参考
@@ -1143,8 +1173,8 @@ if len(st.session_state['history']['time']) > 0:
             marker_time = marker['time']
             marker_event = marker['event']
             marker_amplitude = marker['amplitude']
-            
-            # 在图表上添加竖线标记
+
+            # 在图表上添加竖线标记（marker_time 为 datetime）
             fig.add_vline(
                 x=marker_time,
                 line_dash="dash",
@@ -1154,11 +1184,20 @@ if len(st.session_state['history']['time']) > 0:
                 annotation_font_size=10,
                 annotation_font_color="orange"
             )
-            
+
+            # 找到与事件时间最接近的历史点用于标记 y 值
+            y_val = 0
+            try:
+                if times:
+                    closest_idx = min(range(len(times)), key=lambda i: abs((times[i] - marker_time).total_seconds()))
+                    y_val = moods[closest_idx]
+            except Exception:
+                y_val = 0
+
             # 添加事件标记点
             fig.add_trace(go.Scatter(
                 x=[marker_time],
-                y=[moods[times.index(marker_time)] if marker_time in times else 0],
+                y=[y_val],
                 mode='markers',
                 marker=dict(size=12, color='orange', symbol='star'),
                 name=f"事件: {marker_event[:15]}",
@@ -1340,7 +1379,7 @@ with col_export1:
             st.download_button(
                 label="⬇️ 下载CSV文件",
                 data=csv,
-                file_name=f"ai_logs_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"ai_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
         else:
@@ -1353,38 +1392,56 @@ with col_export2:
             st.download_button(
                 label="⬇️ 下载JSON文件",
                 data=json_str,
-                file_name=f"ai_logs_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                file_name=f"ai_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                 mime="application/json"
             )
         else:
             st.warning("没有日志数据可导出")
 
-# 添加实时更新图表的功能
+# 实时更新图表（使用 session history，非阻塞）
 st.title("实时更新图表")
-
-# 创建一个占位符用于动态更新图表
 chart_placeholder = st.empty()
 
-# 初始化数据
-x_data = []
-y_data = []
+# 从 session history 绘制最新的心情轨迹（随 autorefresh 更新）
+def render_live_chart():
+    times = st.session_state['history']['time']
+    moods = st.session_state['history']['mood']
+    baselines = st.session_state['history']['baseline']
 
-# 开始实时更新
-for _ in range(100):  # 示例：更新100次
-    current_time = datetime.datetime.now()
-    x_data.append(current_time)
-    y_data.append(np.random.random())  # 示例数据，可替换为实际数据
+    if not times:
+        chart_placeholder.info("等待数据更新中（历史为空）...")
+        return
 
-    # 使用 Plotly 绘制图表
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x_data, y=y_data, mode='lines+markers', name='实时数据'))
-    fig.update_layout(title='实时更新图表', xaxis_title='时间', yaxis_title='值')
+    fig_live = go.Figure()
+    fig_live.add_trace(go.Scatter(
+        x=times, y=moods, name='Mood (Total)', mode='lines+markers',
+        line=dict(color='rgba(38, 166, 154, 1)', width=2)
+    ))
+    fig_live.add_trace(go.Scatter(
+        x=times, y=baselines, name='Baseline', mode='lines',
+        line=dict(color='rgba(239, 83, 80, 1)', width=1)
+    ))
 
-    # 更新图表
-    chart_placeholder.plotly_chart(fig, width='stretch')
+    # 绘制事件标记（如果有）
+    for marker in st.session_state.get('event_markers', []):
+        t = marker.get('time')
+        ev = marker.get('event')
+        amp = marker.get('amplitude', 0)
+        try:
+            y_val = 0
+            if times:
+                closest_idx = min(range(len(times)), key=lambda i: abs((times[i] - t).total_seconds()))
+                y_val = moods[closest_idx]
+            fig_live.add_vline(x=t, line_dash='dash', line_color='rgba(255,152,0,0.7)')
+            fig_live.add_trace(go.Scatter(x=[t], y=[y_val], mode='markers', marker=dict(size=10, color='orange', symbol='star'),
+                                         name=f'事件: {ev}', hovertemplate=f"{ev}<br>幅度: {amp}"))
+        except Exception:
+            pass
 
-    # 等待一段时间再更新
-    time.sleep(1)
+    fig_live.update_layout(title='实时心情曲线', xaxis_title='实际时间', yaxis_title='心情值', height=420)
+    chart_placeholder.plotly_chart(fig_live, width='stretch')
+
+render_live_chart()
 
 # 添加保存事件数据和建模公式参数的功能
 # 定义保存路径
@@ -1394,8 +1451,14 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 def save_event_data(event_data, filename="event_data.json"):
     """保存事件数据到JSON文件"""
     filepath = os.path.join(SAVE_DIR, filename)
+    # 将 datetime 转为 ISO 字符串以便JSON序列化
+    def _serialize(obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        raise TypeError("Type not serializable")
+
     with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(event_data, f, ensure_ascii=False, indent=4)
+        json.dump(event_data, f, ensure_ascii=False, indent=4, default=_serialize)
     st.sidebar.success(f"事件数据已保存到 {filepath}")
 
 def save_model_params(params, filename="model_params.json"):
@@ -1405,8 +1468,103 @@ def save_model_params(params, filename="model_params.json"):
         json.dump(params, f, ensure_ascii=False, indent=4)
     st.sidebar.success(f"建模参数已保存到 {filepath}")
 
+def save_session_data(filename="session_data.json"):
+    """保存整个会话数据（history + event_markers + params）到JSON"""
+    filepath = os.path.join(SAVE_DIR, filename)
+    data = {
+        'history': {
+            'time': [t.isoformat() for t in st.session_state['history']['time']],
+            'mood': st.session_state['history']['mood'],
+            'baseline': st.session_state['history']['baseline']
+        },
+        'event_markers': [
+            {**{k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in m.items()}}
+            for m in st.session_state.get('event_markers', [])
+        ],
+        'params': st.session_state['engine'].params
+    }
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+    st.sidebar.success(f"会话数据已保存到 {filepath}")
+
+def load_session_data(filename="session_data.json"):
+    filepath = os.path.join(SAVE_DIR, filename)
+    if not os.path.exists(filepath):
+        st.sidebar.warning(f"未找到文件: {filepath}")
+        return
+    with open(filepath, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    # 恢复 history
+    hist = data.get('history', {})
+    times = hist.get('time', [])
+    moods = hist.get('mood', [])
+    baselines = hist.get('baseline', [])
+    try:
+        st.session_state['history'] = {
+            'time': [datetime.fromisoformat(t) for t in times],
+            'mood': moods,
+            'baseline': baselines
+        }
+    except Exception:
+        st.session_state['history'] = {'time': [], 'mood': [], 'baseline': []}
+
+    # 恢复 events
+    events = data.get('event_markers', [])
+    recovered = []
+    for e in events:
+        e_copy = e.copy()
+        if isinstance(e_copy.get('time'), str):
+            try:
+                e_copy['time'] = datetime.fromisoformat(e_copy['time'])
+            except Exception:
+                pass
+        recovered.append(e_copy)
+    st.session_state['event_markers'] = recovered
+
+    # 恢复 params
+    params = data.get('params')
+    if params:
+        st.session_state['engine'].params = params
+    st.sidebar.success(f"会话数据已从 {filepath} 加载")
+
 # 示例：保存当前事件数据和参数
 if st.sidebar.button("保存数据"):
-    event_data = {"example_event": "data"}  # 示例事件数据
-    save_event_data(event_data)
+    # 保存会话数据（history + events + params）
+    save_session_data()
+    # 另外也保存模型参数单独文件
     save_model_params(silicon_flow_model.params)
+
+if st.sidebar.button("加载会话数据"):
+    load_session_data()
+
+if st.sidebar.button("导出会话为CSV"):
+    # 导出 history 和 events 为 CSV 并提供下载
+    hist = st.session_state.get('history', {'time': [], 'mood': [], 'baseline': []})
+    if hist['time']:
+        df_hist = pd.DataFrame({
+            'time': [t.isoformat() for t in hist['time']],
+            'mood': hist['mood'],
+            'baseline': hist['baseline']
+        })
+        csv_hist = df_hist.to_csv(index=False)
+        st.sidebar.download_button(label='⬇️ 下载 history CSV', data=csv_hist, file_name='history.csv')
+    else:
+        st.sidebar.warning('历史数据为空，无法导出')
+
+    events = st.session_state.get('event_markers', [])
+    if events:
+        df_evt = pd.DataFrame([{
+            'time': (e['time'].isoformat() if isinstance(e.get('time'), datetime) else e.get('time')),
+            'event': e.get('event'),
+            'amplitude': e.get('amplitude')
+        } for e in events])
+        csv_evt = df_evt.to_csv(index=False)
+        st.sidebar.download_button(label='⬇️ 下载 events CSV', data=csv_evt, file_name='events.csv')
+    else:
+        st.sidebar.info('暂无事件可导出')
+
+if st.sidebar.button('备份会话数据（带时间戳）'):
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    save_session_data(filename=f'session_data_{ts}.json')
+    st.sidebar.success('已备份会话数据')
