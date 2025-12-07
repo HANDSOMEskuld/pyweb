@@ -1,4 +1,20 @@
 from bio_model import BioEngine, StreamlitLogger, analyze_event_with_deepseek, analyze_event_with_gemini
+import numpy as np
+from scipy.integrate import solve_ivp
+from scipy.optimize import minimize
+import pandas as pd
+from datetime import datetime, timedelta
+import requests
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+import time
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import io
+import sys
+import json
+from contextlib import redirect_stdout
+import os
 # --- 页面配置 ---
 st.set_page_config(page_title="Bio-Mood Digital Twin", layout="wide")
 
