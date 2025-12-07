@@ -330,7 +330,7 @@ with st.sidebar:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("☕ 喝咖啡"):
-            # 咖啡暂时阻断睡意 (简化实现：减少 Process S)
+            # 咖啡因生效：暂时降低睡眠压力
             st.session_state['engine'].state[0] *= 0.6 
             st.toast("咖啡因生效：睡眠压力暂时降低")
             
@@ -498,7 +498,7 @@ if len(st.session_state['history']['time']) > 0:
         )
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 else:
     st.info("等待数据更新中...")
 
