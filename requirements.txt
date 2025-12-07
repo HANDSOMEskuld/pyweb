@@ -5,3 +5,7 @@ streamlit
 streamlit-autorefresh
 matplotlib
 plotly
+google-genai
+requests
+pymysql
+python-dotenv
